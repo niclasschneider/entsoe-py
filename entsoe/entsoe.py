@@ -8,7 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.builder import XMLParsedAsHTMLWarning
 
-from entsoe.exceptions import InvalidPSRTypeError, InvalidBusinessParameterError, InvalidParameterError
+from .exceptions import InvalidPSRTypeError, InvalidBusinessParameterError, InvalidParameterError
 from .exceptions import NoMatchingDataError, PaginationError
 from .mappings import Area, NEIGHBOURS, lookup_area
 from .parsers import parse_prices, parse_loads, parse_generation, \
@@ -42,7 +42,7 @@ class EntsoeRawClient:
 
     def __init__(
             self, api_key: str, session: Optional[requests.Session] = None,
-            retry_count: int = 1, retry_delay: int = 0,
+            retry_count: int = 3, retry_delay: int = 1,
             proxies: Optional[Dict] = None, timeout: Optional[int] = None):
         """
         Parameters
@@ -188,7 +188,7 @@ class EntsoeRawClient:
         end : pd.Timestamp
         process_type : str
             A51 ... aFRR; A47 ... mFRR
-            
+
         Returns
         -------
         str
@@ -236,7 +236,7 @@ class EntsoeRawClient:
                    end: pd.Timestamp) -> str:
         """
         Parameters
-    
+
         ----------
         country_code : Area|str
         start : pd.Timestamp
@@ -611,7 +611,7 @@ class EntsoeRawClient:
     def query_intraday_offered_capacity(
         self, country_code_from: Union[Area, str],
             country_code_to: Union[Area, str], start: pd.Timestamp,
-            end: pd.Timestamp, implicit:bool = True,**kwargs) -> str:
+            end: pd.Timestamp, implicit:bool = True, **kwargs) -> str:
         """
         Parameters
         ----------
@@ -629,13 +629,14 @@ class EntsoeRawClient:
             country_code_from=country_code_from,
             country_code_to=country_code_to, start=start, end=end,
             doctype="A31", contract_marketagreement_type="A07",
-            auction_type=("A01" if implicit==True else "A02"))
+            auction_type=("A01" if implicit==True else "A02"),
+            **kwargs)
 
     def query_offered_capacity(
         self, country_code_from: Union[Area, str],
             country_code_to: Union[Area, str], start: pd.Timestamp,
             end: pd.Timestamp, contract_marketagreement_type: str,
-            implicit:bool = True,**kwargs) -> str:
+            implicit:bool = True, **kwargs) -> str:
         """
         Allocated result documents, for OC evolution see query_intraday_offered_capacity
 
@@ -670,7 +671,7 @@ class EntsoeRawClient:
             country_code_to: Union[Area, str], start: pd.Timestamp,
             end: pd.Timestamp, doctype: str,
             contract_marketagreement_type: Optional[str] = None,
-            auction_type: Optional[str] = None, business_type: Optional[str] = None) -> str:
+            auction_type: Optional[str] = None, business_type: Optional[str] = None, classification_sequence: Optional[int] = None) -> str:
         """
         Generic function called by query_crossborder_flows,
         query_scheduled_exchanges, query_net_transfer_capacity_DA/WA/MA/YA and query_.
@@ -706,16 +707,18 @@ class EntsoeRawClient:
         if business_type is not None:
             params[
                 'businessType'] = business_type
+        if classification_sequence is not None:
+            params['classificationSequence_AttributeInstanceComponent.Position'] = classification_sequence
 
         response = self._base_request(params=params, start=start, end=end)
         return response.text
 
     def query_activated_balancing_energy_prices(
             self, country_code: Union[Area, str], start: pd.Timestamp,
-            end: pd.Timestamp, 
+            end: pd.Timestamp,
             process_type: Optional[str] = 'A16',
             psr_type: Optional[str] = None,
-            business_type: Optional[str] = None, 
+            business_type: Optional[str] = None,
             standard_market_product: Optional[str] = None,
             original_market_product: Optional[str] = None) -> bytes:
         """
@@ -753,9 +756,9 @@ class EntsoeRawClient:
         if original_market_product:
             params.update({'originalMarketProduct': original_market_product})
         response = self._base_request(params=params, start=start, end=end)
-        
+
         return response.content
-    
+
     def query_imbalance_prices(
             self, country_code: Union[Area, str], start: pd.Timestamp,
             end: pd.Timestamp, psr_type: Optional[str] = None) -> bytes:
@@ -908,7 +911,7 @@ class EntsoeRawClient:
 
     def query_contracted_reserve_prices_procured_capacity(
             self, country_code: Union[Area, str], start: pd.Timestamp,
-            end: pd.Timestamp, process_type: str, 
+            end: pd.Timestamp, process_type: str,
             type_marketagreement_type: str, psr_type: Optional[str] = None,
             offset: int = 0) -> str:
         """
@@ -1191,7 +1194,7 @@ class EntsoePandasClient(EntsoeRawClient):
         df = df.tz_convert(area.tz)
         df = df.truncate(before=start, after=end)
         return df
-    
+
     @year_limited
     def query_day_ahead_prices(
             self, country_code: Union[Area, str],
@@ -1410,7 +1413,7 @@ class EntsoePandasClient(EntsoeRawClient):
         -------
         pd.DataFrame
         """
-        
+
         area = lookup_area(country_code)
         text = super(
             EntsoePandasClient, self).query_installed_generation_capacity(
@@ -1678,7 +1681,8 @@ class EntsoePandasClient(EntsoeRawClient):
             country_code_to=area_to,
             start=start,
             end=end,
-            implicit=implicit)
+            implicit=implicit,
+            **kwargs)
         ts = parse_crossborder_flows(text)
         ts = ts.tz_convert(area_from.tz)
         ts = ts.truncate(before=start, after=end)
@@ -1732,10 +1736,10 @@ class EntsoePandasClient(EntsoeRawClient):
     @year_limited
     def query_activated_balancing_energy_prices(
             self, country_code: Union[Area, str], start: pd.Timestamp,
-            end: pd.Timestamp, 
+            end: pd.Timestamp,
             process_type: Optional[str] = 'A16',
             psr_type: Optional[str] = None,
-            business_type: Optional[str] = None, 
+            business_type: Optional[str] = None,
             standard_market_product: Optional[str] = None,
             original_market_product: Optional[str] = None) -> pd.DataFrame:
         """
